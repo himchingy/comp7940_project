@@ -43,12 +43,6 @@ def main():
 	# To start the bot:
     updater.start_polling()
     updater.idle()
-    
-def echo(update, context):
-	reply_message = update.message.text.upper()
-	logging.info("Update: "+str(update))
-	logging.info("context: "+str(context))
-	context.bot.send_message(chat_id = update.effective_chat.id, text = reply_message)
 
 # Provide help tips for /Help command
 def help_command(update: Update, context: CallbackContext) -> None:
@@ -108,8 +102,8 @@ def share(update: Update, context: CallbackContext) -> None:
 # Define the record handler
 def add_command(update: Update, context: CallbackContext) -> None:
     # Initialize Firebase
-#    cred = credentials.Certificate('./serviceAccountKey.json')
-#    firebase_admin.initialize_app(cred)
+    cred = credentials.Certificate(r'comp7940-project-6cf9753a9422.json')
+    firebase_admin.initialize_app(cred)
 
     # Create a Firestore client
     db = firestore.client()
