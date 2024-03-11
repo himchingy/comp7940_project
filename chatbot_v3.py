@@ -8,6 +8,9 @@ from firebase_admin import credentials
 from firebase_admin import firestore
 from datetime import datetime
 
+import requests
+from bs4 import BeautifulSoup
+from PIL import Image
 
 from ChatGPT_HKBU import HKBU_ChatGPT
 
@@ -41,6 +44,8 @@ def main():
     dispatcher.add_handler(CommandHandler("start", start_command))
     dispatcher.add_handler(CommandHandler("add", add_command))
 
+    dispatcher.add_handler(CommandHandler('command', send_image))
+
 	# To start the bot:
     updater.start_polling()
     updater.idle()
@@ -48,7 +53,25 @@ def main():
 # Inititate the chat for /Start command    
 def start_command(update: Update, context: CallbackContext) -> None:
     """Send a message when the command/ start is issued."""
-    update.message.reply_text('Welcome to GoHiking chatbot.\n\nI can recommend Hong Kong hiking routes based on your preference. But in order to do that, please tell me more on the followings:\n\n(District)\n(Difficulty)\n(Route length)\n(Time)')
+    update.message.reply_text('Welcome to GoHiking chatbot.')
+
+    # Open the image file
+    with Image.open(r'imgs\AFCD_Country_Park_Map.jpg') as img:
+        # Resize the image
+        max_size = (5000, 5000)  # Max width and height
+        img.thumbnail(max_size)
+
+        # Save the resized image to a new file
+        img.save(r'imgs\resized_image.jpg')
+
+    # Open the resized image file in binary mode
+    with open(r'imgs\resized_image.jpg', 'rb') as photo:
+        context.bot.send_photo(chat_id=update.effective_chat.id, photo=photo)
+    
+    with open(r'imgs\AFCD_Country_Park_Map_Legend.jpg', 'rb') as photo:
+        context.bot.send_photo(chat_id=update.effective_chat.id, photo=photo)
+
+    update.message.reply_text('\n\nI can recommend Hong Kong hiking routes based on your preference. Please select a location based on Agriculture, Fisheries and Conservation Department offical country parks map and your preferred difficulty.\n\n(Location)\n(Difficulty)')
 
 # Handle user's input
 def handle_message(update: Update, context: CallbackContext) -> None:
@@ -68,7 +91,7 @@ def handle_message(update: Update, context: CallbackContext) -> None:
         update.message.reply_text('I can provide you advice on hiking routes and share your hiking photos with others.\nWhat would you like to do now?')
     elif (gptResult == 'hiking location'):
         update.message.reply_text('Let me search...please wait for a while...')
-        prompt = "Please list the hiking routes in the location mentioned **" + user_input + "**. PLease rate the hiking difficuty with 5 stars as the most difficult one and also enclose the route name with **"
+        prompt = "Please recommend a hiking route in the location mentioned **" + user_input + "**. PLease rate the hiking difficuty with 5 stars as the most difficult one and also enclose the route name with **"
         gptResult = equiped_chatgpt(update, context, prompt, True)
     elif (gptResult == 'add'):
         update.message.reply_text('Please add hiking record by /add command in the following format...')
@@ -84,11 +107,12 @@ def handle_message(update: Update, context: CallbackContext) -> None:
 def read_record(update, context):
     reply_message = update.message.text.lower()
     return reply_message
-
+ 
 # Define the share command handler
-def share_hiking_image(update: Update, context: CallbackContext) -> None:
+def send_image(update: Update, context: CallbackContext) -> None:
     """Share hiking image."""
-    update.message.reply_text('Please share the details of the hiking route, including the date, route name, weather, difficulty, and comments.')
+    image_url = r'https://www.afcd.gov.hk/english/country/cou_lea/images/common/KeyPlan_1_CP_SA_ver4.jpg'
+    context.bot.send_photo(chat_id=update.effective_chat.id, photo=image_url)
 
 # Define the record handler
 def add_command(update: Update, context: CallbackContext) -> None:
