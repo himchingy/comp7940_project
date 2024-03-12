@@ -8,6 +8,11 @@ from firebase_admin import credentials
 from firebase_admin import firestore
 from datetime import datetime
 
+import requests
+from bs4 import BeautifulSoup
+from PIL import Image
+from urllib.parse import urljoin
+
 from ChatGPT_HKBU import HKBU_ChatGPT
 
 def equiped_chatgpt(update,context, prompt, reply):
@@ -15,9 +20,54 @@ def equiped_chatgpt(update,context, prompt, reply):
     reply_message = chatgpt.submit(prompt)
     logging.info("Update: "+str(update))
     logging.info("context: "+str(context))
+
     if reply:
         context.bot.send_message(chat_id=update.effective_chat.id,text=reply_message)
     return reply_message
+
+# Get the image links from a URL
+def get_image_links(url):
+    # Send a GET request
+    response = requests.get(url)
+
+    # Parse the HTML content of the page with BeautifulSoup
+    soup = BeautifulSoup(response.text, 'html.parser')
+
+    # Find the table with the class 'content'
+    table = soup.find('table')
+
+    # Find all image tags within this table
+    images = table.find_all('img')
+
+    # Extract the 'src' attribute from each image tag
+    image_links = [urljoin(url, img['src']) for img in images]
+
+    # Filter the list to include only .jpg and .png images
+    image_links = [link for link in image_links if link.endswith('.jpg') or link.endswith('.png')]
+
+    return image_links
+
+# Search for a specific text in the table and return the URL
+def search_afcd(url, target_text):
+    response = requests.get(url)
+    soup = BeautifulSoup(response.text, 'html.parser')
+    table = soup.find('table')
+    target_url = None
+
+    for row in table.find_all('tr'):
+        cells = row.find_all('td')
+        if cells:
+            link = cells[0].find('a')
+            if link and target_text in link.get_text():
+                target_url = urljoin(url, link['href'])
+                break
+
+    if target_url:
+        # print(f"URL for '{target_text}': {target_url}")
+        return get_image_links(target_url)
+
+    else:
+        None
 
 def main():
     # Load your token and create an Updater for your Bot
@@ -36,80 +86,95 @@ def main():
     dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_message))
 
 	# Command Handlers
-    dispatcher.add_handler(CommandHandler("help", help_command))
-    dispatcher.add_handler(CommandHandler("hello", hello_command))
+    dispatcher.add_handler(CommandHandler("start", start_command))
     dispatcher.add_handler(CommandHandler("add", add_command))
-    dispatcher.add_handler(CommandHandler("search", search_command))
+
+    dispatcher.add_handler(CommandHandler('command', send_image))
 
 	# To start the bot:
     updater.start_polling()
     updater.idle()
-    
-def echo(update, context):
-	reply_message = update.message.text.upper()
-	logging.info("Update: "+str(update))
-	logging.info("context: "+str(context))
-	context.bot.send_message(chat_id = update.effective_chat.id, text = reply_message)
 
-# Provide help tips for /Help command
-def help_command(update: Update, context: CallbackContext) -> None:
-	"""Send a message when the command/ help is issued."""
-	update.message.reply_text('Helping you helping you.')
-
-# Inititate the chat for /Hello command    
-def hello_command(update: Update, context: CallbackContext) -> None:
-    """Send a message when the command/ hello is issued."""
+# Inititate the chat for /Start command    
+def start_command(update: Update, context: CallbackContext) -> None:
+    """Send a message when the command/ start is issued."""
     update.message.reply_text('Welcome to GoHiking chatbot.')
-    update.message.reply_text('I can provide you advice on hiking routes and share your hiking photos with others.\nWhat would you like to do now?')
+
+    # Open the image file
+    with Image.open(r'imgs\AFCD_Country_Park_Map.jpg') as img:
+        # Resize the image
+        max_size = (5000, 5000)  # Max width and height
+        img.thumbnail(max_size)
+
+        # Save the resized image to a new file
+        img.save(r'imgs\resized_image.jpg')
+
+    # Open the resized image file in binary mode
+    with open(r'imgs\resized_image.jpg', 'rb') as photo:
+        context.bot.send_photo(chat_id=update.effective_chat.id, photo=photo)
+    
+    with open(r'imgs\AFCD_Country_Park_Map_Legend.jpg', 'rb') as photo:
+        context.bot.send_photo(chat_id=update.effective_chat.id, photo=photo)
+
+    update.message.reply_text('\n\nI can recommend Hong Kong hiking routes based on your preference. Please select a location based on Agriculture, Fisheries and Conservation Department offical country park map and your preferred difficulty.\n\n(Location)\n(Difficulty)')
 
 # Handle user's input
 def handle_message(update: Update, context: CallbackContext) -> None:
     user_input = update.message.text.lower()
-    hiking_prompt = "if the user wants to express his intention to go hiking, then reply me 'go hiking'; "
     welcome_prompt = "if the user says greeting message, then reply me 'welcome'; "
-    share_prompt = "if the user wants to share something with others, then reply me 'share'; "
-    hiking_district_prompt = "if the user replies a place in Hong Kong, then reply me 'hiking location'; "
+    hiking_district_prompt = "if the user replies a place or a country park in Hong Kong, then reply me 'hiking location'; "
     add_record_prompt = "if the user want to add a hiking record, then reply me 'add'; "
-    search_record_prompt = "if the user want to search hiking records, then reply me 'search'; "
-    prompt = "Please analyze this user's input enclosed by **: **" + user_input +"**. " + welcome_prompt + hiking_prompt + share_prompt + hiking_district_prompt + add_record_prompt + search_record_prompt + " if none of the above, reply me 'none'. Please just give me the result keyword."
-#    print(prompt)
+    prompt = "Please analyze this user's input enclosed by **: **" + user_input +"**. " + welcome_prompt + hiking_district_prompt + add_record_prompt + " if none of the above, reply me 'none'. Please just give me the result keyword."
     gptResult = equiped_chatgpt(update, context, prompt, False)
-    print(gptResult)
+    
+    print(prompt, gptResult)
 
     # Give response based on ChatGPT result
     if gptResult == 'welcome':
         update.message.reply_text('Welcome to GoHiking chatbot.')
-        update.message.reply_text('I can provide you advice on hiking routes and share your hiking photos with others.\nWhat would you like to do now?')
-    elif (gptResult == 'go hiking'):
-        prompt = "Please act as a chatbot to provide a short answer to this statement: " + user_input +". And then ask the user which district does he want to go."
-        gptResult = equiped_chatgpt(update, context, prompt, True)
+        update.message.reply_text('I can provide you advice on hiking routes.\nWhich trail would you like to explore?')
     elif (gptResult == 'hiking location'):
-        update.message.reply_text('Let me search...please wait for a while...')
-        prompt = "Please list the hiking routes in the location mentioned **" + user_input + "**. PLease rate the hiking difficuty with 5 stars as the most difficult one and also enclose the route name with **"
+        update.message.reply_text('Let me think...please wait for a while...')
+        prompt = "Please recommend a hiking route in the location mentioned **" + user_input + "**. PLease rate the hiking difficuty with 5 stars as the most difficult one and also enclose the route name with **"
         gptResult = equiped_chatgpt(update, context, prompt, True)
+
+        # See if there are any photos for the location
+        update.message.reply_text('Looking for country park photos...please wait for a while...')
+        identify_country_park_prompt = "Please identify the country park in recommended by gptResult **" + gptResult + "**. If the result is not a country park in Hong Kong, then reply me with the name of the country park but without adding the word country park in it. If it is not a country park in Hong Kong, then reply me 'none'."
+        identify_country_park_prompt_result = equiped_chatgpt(update, context, identify_country_park_prompt, False)
+        print(identify_country_park_prompt_result)
+
+        img_urls = search_afcd('https://www.afcd.gov.hk/english/country/cou_lea/the_facts.html', identify_country_park_prompt_result)
+        print(img_urls)
+        if img_urls != None:
+            update.message.reply_text('Here are some photos of the country park:')
+            for img_url in img_urls:
+                context.bot.send_photo(chat_id=update.effective_chat.id, photo=img_url)
+        else:
+            update.message.reply_text("No official photos from AFCD are available for the trail you have chosen.")
+
     elif (gptResult == 'add'):
         update.message.reply_text('Please add hiking record by /add command in the following format...')
         update.message.reply_text('e.g. /add (hiking date), (route name), (weather), (difficulty 1-5), (comment)')
-    elif (gptResult == 'search'):
-        update.message.reply_text('Please use /search command in the following format to search hiking record(s)...')
-        update.message.reply_text('e.g. /search (route name)')
-
-    elif (gptResult == 'share'):
-        update.message.reply_text('Please share the details of the hiking route, including the date, route name, weather, difficulty, and comments.')
-    
     else:
         update.message.reply_text('I am sorry. As a hiking chatbot, I can only response to topics related to hiking. You can ask me questions or seek advice about hiking. :)')
 
+
+def read_record(update, context):
+    reply_message = update.message.text.lower()
+    return reply_message
+ 
 # Define the share command handler
-def share(update: Update, context: CallbackContext) -> None:
-    """Initiate the process of sharing a hiking route and photos."""
-    update.message.reply_text('Please share the details of the hiking route, including the date, route name, weather, difficulty, and comments.')
+def send_image(update: Update, context: CallbackContext) -> None:
+    """Share hiking image."""
+    image_url = r'https://www.afcd.gov.hk/english/country/cou_lea/images/common/KeyPlan_1_CP_SA_ver4.jpg'
+    context.bot.send_photo(chat_id=update.effective_chat.id, photo=image_url)
 
 # Define the record handler
 def add_command(update: Update, context: CallbackContext) -> None:
     # Initialize Firebase
-#    cred = credentials.Certificate('./serviceAccountKey.json')
-#    firebase_admin.initialize_app(cred)
+    cred = credentials.Certificate(r'comp7940-project-6cf9753a9422.json')
+    firebase_admin.initialize_app(cred)
 
     # Create a Firestore client
     db = firestore.client()
@@ -119,8 +184,6 @@ def add_command(update: Update, context: CallbackContext) -> None:
     record = update.message.text
     record = record.replace('/add ', '')
     split_data = record.split(',')
-    cleared_list = [item.strip() for item in split_data]
-            
     print(user_username)
     print(date)
     print(split_data)
@@ -132,70 +195,17 @@ def add_command(update: Update, context: CallbackContext) -> None:
     document_name = 'record_' + formatted_datetime
     data = {
         'user': user_username,
-        'date': cleared_list[0],
-        'name': cleared_list[1],
-        'weather': cleared_list[2],
-        'difficulty': cleared_list[3],
-        'comment': cleared_list[4],
+        'date': split_data[0],
+        'name': split_data[1],
+        'weather': split_data[2],
+        'difficulty': split_data[3],
+        'comment': split_data[4],
     }
     
     doc_ref = db.collection(collection_name).document(document_name)
     doc_ref.set(data)
     print("Data saved successfully!")
     update.message.reply_text('Record saved!')
-
-# Define the record handler
-def search_command(update: Update, context: CallbackContext) -> None:
-    # Initialize Firebase
-#    cred = credentials.Certificate('./serviceAccountKey.json')
-#    firebase_admin.initialize_app(cred)
-
-    # Create a Firestore client
-    db = firestore.client()
-
-    record = update.message.text
-    record = record.replace('/search ', '')
-    search_RouteName = record.split(',')
-    print(search_RouteName)
     
-    collection_name = 'hiking_record'
-    
-    # Define the query
-    query = db.collection(collection_name).where('name', '==', search_RouteName[0])
-    
-    # Retrieve the documents that match the query
-    docs = query.get()
-    print(docs)
-    
-    # Iterate over the documents and extract the data
-    for doc in docs:
-        record_data = doc.to_dict()
-        
-        # Access individual fields from the record_data dictionary
-        comment = record_data.get('comment', '')
-        date = record_data.get('date', '')
-        difficulty = record_data.get('difficulty', '')
-        name = record_data.get('name', '')
-        weather = record_data.get('weather', '')
-        
-        # Print or perform operations with the extracted fields
-        print("Date:", date)
-        print("Name:", name)
-        print("Weather:", weather)
-        print("Difficulty:", difficulty)
-        print("Comment:", comment)     
-        
-        # Reply to the user with the extracted fields
-        reply_message = (
-            f"Date: {date}\n"
-            f"Name: {name}\n"
-            f"Weather: {weather}\n"
-            f"Difficulty: {difficulty}\n"
-            f"Comment: {comment}"
-        )
-        update.message.reply_text(reply_message)
-    
-    print("Data extracted successfully!")
-
 if __name__=='__main__':
     main()
