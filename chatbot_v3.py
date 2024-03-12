@@ -4,8 +4,7 @@ from telegram.ext import (Updater, CommandHandler, MessageHandler, Filters, Call
 import configparser
 import logging
 import firebase_admin
-from firebase_admin import credentials
-from firebase_admin import firestore
+from firebase_admin import credentials, firestore
 from datetime import datetime
 
 import requests
@@ -82,14 +81,21 @@ def main():
     global chatgpt 
     chatgpt=HKBU_ChatGPT()
 
+    # Initialize Firebase
+    cred = credentials.Certificate(r'comp7940-project-firebase-adminsdk-hspme-1eccd676b1.json')
+    firebase_admin.initialize_app(cred)
+    
+    # Create a Firestore client
+    global db
+    db = firestore.client()
+
     # Message handler
     dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_message))
 
 	# Command Handlers
     dispatcher.add_handler(CommandHandler("start", start_command))
     dispatcher.add_handler(CommandHandler("add", add_command))
-
-    dispatcher.add_handler(CommandHandler('command', send_image))
+    dispatcher.add_handler(CommandHandler('record', show_record))
 
 	# To start the bot:
     updater.start_polling()
@@ -163,49 +169,63 @@ def handle_message(update: Update, context: CallbackContext) -> None:
 def read_record(update, context):
     reply_message = update.message.text.lower()
     return reply_message
- 
-# Define the share command handler
-def send_image(update: Update, context: CallbackContext) -> None:
-    """Share hiking image."""
-    image_url = r'https://www.afcd.gov.hk/english/country/cou_lea/images/common/KeyPlan_1_CP_SA_ver4.jpg'
-    context.bot.send_photo(chat_id=update.effective_chat.id, photo=image_url)
+
 
 # Define the record handler
 def add_command(update: Update, context: CallbackContext) -> None:
-    # Initialize Firebase
-    cred = credentials.Certificate(r'comp7940-project-6cf9753a9422.json')
-    firebase_admin.initialize_app(cred)
-
-    # Create a Firestore client
-    db = firestore.client()
 
     user_username = update.message.from_user.username
-    date = update.message.date.strftime('%Y-%m-%d')
-    record = update.message.text
-    record = record.replace('/add ', '')
+
+    upload_datetime = datetime.now()
+    formatted_datetime = upload_datetime.strftime("%Y_%m_%d_%H_%M_%S")
+
+    # Get the record from the user's message
+    record = update.message.text.replace('/add ', '')
     split_data = record.split(',')
+
+    # Check if all required information is included
+    if len(split_data) != 5:
+        update.message.reply_text('Please include all required information: date, route, weather, difficulty, and comment.')
+        return
+
     print(user_username)
-    print(date)
     print(split_data)
-    
-    current_datetime = datetime.now()
-    formatted_datetime = current_datetime.strftime("%Y_%m_%d_%H_%M_%S")
-    
-    collection_name = 'hiking_record'
-    document_name = 'record_' + formatted_datetime
+
+    # Create the document data
     data = {
         'user': user_username,
         'date': split_data[0],
-        'name': split_data[1],
+        'route': split_data[1],
         'weather': split_data[2],
         'difficulty': split_data[3],
         'comment': split_data[4],
+        'upload_user': user_username,
+        'upload_time': formatted_datetime,
     }
     
+    # Create a new document in the 'hiking_record' collection
+    collection_name = 'hiking_record'
+    document_name = 'record_' + upload_datetime.strftime("%Y_%m_%d_%H_%M_%S")
     doc_ref = db.collection(collection_name).document(document_name)
     doc_ref.set(data)
-    print("Data saved successfully!")
-    update.message.reply_text('Record saved!')
+
+    update.message.reply_text('Hiking record added successfully.')
+
+def show_record(update: Update, context: CallbackContext) -> None:
+    # Get the hiking record from Firestore
+    collection_name = 'hiking_record'
+    records = db.collection(collection_name).stream()
+    record_list = []
+
+    for record in records:
+        record_list.append(record.to_dict())
+
+    # Sort the records by upload time
+    record_list.sort(key=lambda x: x['upload_time'], reverse=True)
+
+    # Send the records to the user
+    for record in record_list:
+        update.message.reply_text(f"Date: {record['date']}\nRoute: {record['route']}\nWeather: {record['weather']}\nDifficulty: {record['difficulty']}\nComment: {record['comment']}\nUploaded by: {record['upload_user']} at {record['upload_time']}")
     
 if __name__=='__main__':
     main()
