@@ -11,6 +11,7 @@ from datetime import datetime
 import requests
 from bs4 import BeautifulSoup
 from PIL import Image
+from urllib.parse import urljoin
 
 from ChatGPT_HKBU import HKBU_ChatGPT
 
@@ -23,6 +24,50 @@ def equiped_chatgpt(update,context, prompt, reply):
     if reply:
         context.bot.send_message(chat_id=update.effective_chat.id,text=reply_message)
     return reply_message
+
+# Get the image links from a URL
+def get_image_links(url):
+    # Send a GET request
+    response = requests.get(url)
+
+    # Parse the HTML content of the page with BeautifulSoup
+    soup = BeautifulSoup(response.text, 'html.parser')
+
+    # Find the table with the class 'content'
+    table = soup.find('table')
+
+    # Find all image tags within this table
+    images = table.find_all('img')
+
+    # Extract the 'src' attribute from each image tag
+    image_links = [urljoin(url, img['src']) for img in images]
+
+    # Filter the list to include only .jpg and .png images
+    image_links = [link for link in image_links if link.endswith('.jpg') or link.endswith('.png')]
+
+    return image_links
+
+# Search for a specific text in the table and return the URL
+def search_afcd(url, target_text):
+    response = requests.get(url)
+    soup = BeautifulSoup(response.text, 'html.parser')
+    table = soup.find('table')
+    target_url = None
+
+    for row in table.find_all('tr'):
+        cells = row.find_all('td')
+        if cells:
+            link = cells[0].find('a')
+            if link and target_text in link.get_text():
+                target_url = urljoin(url, link['href'])
+                break
+
+    if target_url:
+        # print(f"URL for '{target_text}': {target_url}")
+        return get_image_links(target_url)
+
+    else:
+        None
 
 def main():
     # Load your token and create an Updater for your Bot
@@ -71,35 +116,46 @@ def start_command(update: Update, context: CallbackContext) -> None:
     with open(r'imgs\AFCD_Country_Park_Map_Legend.jpg', 'rb') as photo:
         context.bot.send_photo(chat_id=update.effective_chat.id, photo=photo)
 
-    update.message.reply_text('\n\nI can recommend Hong Kong hiking routes based on your preference. Please select a location based on Agriculture, Fisheries and Conservation Department offical country parks map and your preferred difficulty.\n\n(Location)\n(Difficulty)')
+    update.message.reply_text('\n\nI can recommend Hong Kong hiking routes based on your preference. Please select a location based on Agriculture, Fisheries and Conservation Department offical country park map and your preferred difficulty.\n\n(Location)\n(Difficulty)')
 
 # Handle user's input
 def handle_message(update: Update, context: CallbackContext) -> None:
     user_input = update.message.text.lower()
     welcome_prompt = "if the user says greeting message, then reply me 'welcome'; "
-    share_prompt = "if the user wants to share something with others, then reply me 'share'; "
-    hiking_district_prompt = "if the user replies a place in Hong Kong, then reply me 'hiking location'; "
+    hiking_district_prompt = "if the user replies a place or a country park in Hong Kong, then reply me 'hiking location'; "
     add_record_prompt = "if the user want to add a hiking record, then reply me 'add'; "
-    prompt = "Please analyze this user's input enclosed by **: **" + user_input +"**. " + welcome_prompt + share_prompt + hiking_district_prompt + add_record_prompt + " if none of the above, reply me 'none'. Please just give me the result keyword."
-    print(prompt)
+    prompt = "Please analyze this user's input enclosed by **: **" + user_input +"**. " + welcome_prompt + hiking_district_prompt + add_record_prompt + " if none of the above, reply me 'none'. Please just give me the result keyword."
     gptResult = equiped_chatgpt(update, context, prompt, False)
-    print(gptResult)
+    
+    print(prompt, gptResult)
 
     # Give response based on ChatGPT result
     if gptResult == 'welcome':
         update.message.reply_text('Welcome to GoHiking chatbot.')
-        update.message.reply_text('I can provide you advice on hiking routes and share your hiking photos with others.\nWhat would you like to do now?')
+        update.message.reply_text('I can provide you advice on hiking routes.\nWhich trail would you like to explore?')
     elif (gptResult == 'hiking location'):
-        update.message.reply_text('Let me search...please wait for a while...')
+        update.message.reply_text('Let me think...please wait for a while...')
         prompt = "Please recommend a hiking route in the location mentioned **" + user_input + "**. PLease rate the hiking difficuty with 5 stars as the most difficult one and also enclose the route name with **"
         gptResult = equiped_chatgpt(update, context, prompt, True)
+
+        # See if there are any photos for the location
+        update.message.reply_text('Looking for country park photos...please wait for a while...')
+        identify_country_park_prompt = "Please identify the country park in recommended by gptResult **" + gptResult + "**. If the result is not a country park in Hong Kong, then reply me with the name of the country park but without adding the word country park in it. If it is not a country park in Hong Kong, then reply me 'none'."
+        identify_country_park_prompt_result = equiped_chatgpt(update, context, identify_country_park_prompt, False)
+        print(identify_country_park_prompt_result)
+
+        img_urls = search_afcd('https://www.afcd.gov.hk/english/country/cou_lea/the_facts.html', identify_country_park_prompt_result)
+        print(img_urls)
+        if img_urls != None:
+            update.message.reply_text('Here are some photos of the country park:')
+            for img_url in img_urls:
+                context.bot.send_photo(chat_id=update.effective_chat.id, photo=img_url)
+        else:
+            update.message.reply_text("No official photos from AFCD are available for the trail you have chosen.")
+
     elif (gptResult == 'add'):
         update.message.reply_text('Please add hiking record by /add command in the following format...')
         update.message.reply_text('e.g. /add (hiking date), (route name), (weather), (difficulty 1-5), (comment)')
-
-    elif (gptResult == 'share'):
-        update.message.reply_text('Please share the details of the hiking route, including the date, route name, weather, difficulty, and comments.')
-    
     else:
         update.message.reply_text('I am sorry. As a hiking chatbot, I can only response to topics related to hiking. You can ask me questions or seek advice about hiking. :)')
 
