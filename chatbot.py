@@ -88,7 +88,7 @@ def main():
 	# Command Handlers
     dispatcher.add_handler(CommandHandler("start", start_command))
     dispatcher.add_handler(CommandHandler("add", add_command))
-
+    dispatcher.add_handler(CommandHandler("record", search_command))
     dispatcher.add_handler(CommandHandler('command', send_image))
 
 	# To start the bot:
@@ -124,7 +124,8 @@ def handle_message(update: Update, context: CallbackContext) -> None:
     welcome_prompt = "if the user says greeting message, then reply me 'welcome'; "
     hiking_district_prompt = "if the user replies a place or a country park in Hong Kong, then reply me 'hiking location'; "
     add_record_prompt = "if the user want to add a hiking record, then reply me 'add'; "
-    prompt = "Please analyze this user's input enclosed by **: **" + user_input +"**. " + welcome_prompt + hiking_district_prompt + add_record_prompt + " if none of the above, reply me 'none'. Please just give me the result keyword."
+    search_record_prompt = "if the user want to search hiking records, then reply me 'search'; "
+    prompt = "Please analyze this user's input enclosed by **: **" + user_input +"**. " + welcome_prompt + hiking_district_prompt + add_record_prompt + search_record_prompt + " if none of the above, reply me 'none'. Please just give me the result keyword."
     gptResult = equiped_chatgpt(update, context, prompt, False)
     
     print(prompt, gptResult)
@@ -155,7 +156,11 @@ def handle_message(update: Update, context: CallbackContext) -> None:
 
     elif (gptResult == 'add'):
         update.message.reply_text('Please add hiking record by /add command in the following format...')
-        update.message.reply_text('e.g. /add (hiking date), (route name), (weather), (difficulty 1-5), (comment)')
+        update.message.reply_text('e.g. /add 01/11/2011, Shing Mun, Sunny, 3, Nice weather hiking with friends')
+    elif (gptResult == 'search'):
+        update.message.reply_text('Please use /search command in the following format to search hiking record(s)...')
+        update.message.reply_text('e.g. /record Shing Mun River')
+
     else:
         update.message.reply_text('I am sorry. As a hiking chatbot, I can only response to topics related to hiking. You can ask me questions or seek advice about hiking. :)')
 
@@ -172,40 +177,102 @@ def send_image(update: Update, context: CallbackContext) -> None:
 
 # Define the record handler
 def add_command(update: Update, context: CallbackContext) -> None:
-    # Initialize Firebase
-    cred = credentials.Certificate(r'comp7940-project-6cf9753a9422.json')
-    firebase_admin.initialize_app(cred)
+    try:
+        # Initialize Firebase
+#        cred = credentials.Certificate(r'serviceAccountKey.json')
+#        firebase_admin.initialize_app(cred)
+    
+        # Create a Firestore client
+        db = firestore.client()
+    
+        user_username = update.message.from_user.username
+        date = update.message.date.strftime('%Y-%m-%d')
+        record = update.message.text
+        record = record.replace('/add ', '')
+        split_data = record.split(',')
+        print(user_username)
+        print(date)
+        print(split_data)
+        
+        current_datetime = datetime.now()
+        formatted_datetime = current_datetime.strftime("%Y_%m_%d_%H_%M_%S")
+        
+        collection_name = 'hiking_record'
+        document_name = 'record_' + formatted_datetime
+        data = {
+            'user': user_username,
+            'date': split_data[0],
+            'name': split_data[1],
+            'weather': split_data[2],
+            'difficulty': split_data[3],
+            'comment': split_data[4],
+        }
+        
+        doc_ref = db.collection(collection_name).document(document_name)
+        doc_ref.set(data)
+        print("Data saved successfully!")
+        update.message.reply_text('Record saved!')
+    
+    except (IndexError, ValueError):
+        update.message.reply_text('Usage: e.g. /add 01/11/2011, Shing Mun, Sunny, 3, Nice weather hiking with friends')
 
-    # Create a Firestore client
-    db = firestore.client()
+# Define the record handler
+def search_command(update: Update, context: CallbackContext) -> None:
+    try:
+        # Initialize Firebase
+    #    cred = credentials.Certificate('./serviceAccountKey.json')
+    #    firebase_admin.initialize_app(cred)
+    
+        # Create a Firestore client
+        db = firestore.client()
+    
+        record = update.message.text
+        record = record.replace('/search ', '')
+        search_RouteName = record.split(',')
+        print(search_RouteName)
+        
+        collection_name = 'hiking_record'
+        
+        # Define the query
+        query = db.collection(collection_name).where('name', '==', search_RouteName[0])
+        
+        # Retrieve the documents that match the query
+        docs = query.get()
+        print(docs)
+        
+        # Iterate over the documents and extract the data
+        for doc in docs:
+            record_data = doc.to_dict()
+            
+            # Access individual fields from the record_data dictionary
+            comment = record_data.get('comment', '')
+            date = record_data.get('date', '')
+            difficulty = record_data.get('difficulty', '')
+            name = record_data.get('name', '')
+            weather = record_data.get('weather', '')
+            
+            # Print or perform operations with the extracted fields
+            print("Date:", date)
+            print("Name:", name)
+            print("Weather:", weather)
+            print("Difficulty:", difficulty)
+            print("Comment:", comment)     
+            
+            # Reply to the user with the extracted fields
+            reply_message = (
+                f"Date: {date}\n"
+                f"Name: {name}\n"
+                f"Weather: {weather}\n"
+                f"Difficulty: {difficulty}\n"
+                f"Comment: {comment}"
+            )
+            update.message.reply_text(reply_message)
+        
+        print("Data extracted successfully!")
+    
+    except (IndexError, ValueError):
+        update.message.reply_text('Usage: e.g. /record Shing Mun River')
 
-    user_username = update.message.from_user.username
-    date = update.message.date.strftime('%Y-%m-%d')
-    record = update.message.text
-    record = record.replace('/add ', '')
-    split_data = record.split(',')
-    print(user_username)
-    print(date)
-    print(split_data)
-    
-    current_datetime = datetime.now()
-    formatted_datetime = current_datetime.strftime("%Y_%m_%d_%H_%M_%S")
-    
-    collection_name = 'hiking_record'
-    document_name = 'record_' + formatted_datetime
-    data = {
-        'user': user_username,
-        'date': split_data[0],
-        'name': split_data[1],
-        'weather': split_data[2],
-        'difficulty': split_data[3],
-        'comment': split_data[4],
-    }
-    
-    doc_ref = db.collection(collection_name).document(document_name)
-    doc_ref.set(data)
-    print("Data saved successfully!")
-    update.message.reply_text('Record saved!')
     
 if __name__=='__main__':
     main()
