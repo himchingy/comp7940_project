@@ -79,6 +79,17 @@ def main():
 	# You can set this logging module, so you will know when and why things do not work as expected. Meanwhile, update your config.ini as:
     logging.basicConfig(format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
+    # Initialize Firebase
+    try:
+        cred = credentials.Certificate('./serviceAccountKey.json')
+        firebase_admin.initialize_app(cred)    
+    except:
+        pass
+    
+    # Create a Firestore client
+    global db
+    db = firestore.client()
+
     global chatgpt 
     chatgpt=HKBU_ChatGPT()
 
@@ -88,8 +99,7 @@ def main():
 	# Command Handlers
     dispatcher.add_handler(CommandHandler("start", start_command))
     dispatcher.add_handler(CommandHandler("add", add_command))
-    dispatcher.add_handler(CommandHandler("record", search_command))
-    dispatcher.add_handler(CommandHandler('command', send_image))
+    dispatcher.add_handler(CommandHandler("record", show_record))
 
 	# To start the bot:
     updater.start_polling()
@@ -164,82 +174,66 @@ def handle_message(update: Update, context: CallbackContext) -> None:
     else:
         update.message.reply_text('I am sorry. As a hiking chatbot, I can only response to topics related to hiking. You can ask me questions or seek advice about hiking. :)')
 
-
-def read_record(update, context):
-    reply_message = update.message.text.lower()
-    return reply_message
- 
-# Define the share command handler
-def send_image(update: Update, context: CallbackContext) -> None:
-    """Share hiking image."""
-    image_url = r'https://www.afcd.gov.hk/english/country/cou_lea/images/common/KeyPlan_1_CP_SA_ver4.jpg'
-    context.bot.send_photo(chat_id=update.effective_chat.id, photo=image_url)
-
 # Define the record handler
 def add_command(update: Update, context: CallbackContext) -> None:
-    try:
-        # Initialize Firebase
-#        cred = credentials.Certificate(r'serviceAccountKey.json')
-#        firebase_admin.initialize_app(cred)
+    user_username = update.message.from_user.username
+    date = update.message.date.strftime('%Y-%m-%d')
+    record = update.message.text
+    record = record.replace('/add', '')
+    split_data = record.split(',')
+    print(user_username)
+    print(date)
+    print(split_data)
     
-        # Create a Firestore client
-        db = firestore.client()
+    current_datetime = datetime.now()
+    formatted_datetime = current_datetime.strftime("%Y_%m_%d_%H_%M_%S")
     
-        user_username = update.message.from_user.username
-        date = update.message.date.strftime('%Y-%m-%d')
-        record = update.message.text
-        record = record.replace('/add ', '')
-        split_data = record.split(',')
-        print(user_username)
-        print(date)
-        print(split_data)
-        
-        current_datetime = datetime.now()
-        formatted_datetime = current_datetime.strftime("%Y_%m_%d_%H_%M_%S")
-        
-        collection_name = 'hiking_record'
-        document_name = 'record_' + formatted_datetime
-        data = {
-            'user': user_username,
-            'date': split_data[0],
-            'name': split_data[1],
-            'weather': split_data[2],
-            'difficulty': split_data[3],
-            'comment': split_data[4],
-        }
-        
-        doc_ref = db.collection(collection_name).document(document_name)
-        doc_ref.set(data)
-        print("Data saved successfully!")
-        update.message.reply_text('Record saved!')
-    
-    except (IndexError, ValueError):
+    # Check if all required information is included
+    if len(split_data) != 5:
+        update.message.reply_text('Please include all required information: date, route, weather, difficulty, and comment.')
         update.message.reply_text('Usage: e.g. /add 01/11/2011, Shing Mun, Sunny, 3, Nice weather hiking with friends')
-
+        return
+    
+    collection_name = 'hiking_record'
+    document_name = 'record_' + formatted_datetime
+    data = {
+        'user': user_username,
+        'date': split_data[0].strip(),
+        'name': split_data[1].strip(),
+        'weather': split_data[2].strip(),
+        'difficulty': split_data[3].strip(),
+        'comment': split_data[4].strip(),
+    }
+    
+    doc_ref = db.collection(collection_name).document(document_name)
+    doc_ref.set(data)
+    print("Data saved successfully!")
+    update.message.reply_text('Hiking record added successfully!')
+    
 # Define the record handler
-def search_command(update: Update, context: CallbackContext) -> None:
-    try:
-        # Initialize Firebase
-    #    cred = credentials.Certificate('./serviceAccountKey.json')
-    #    firebase_admin.initialize_app(cred)
+def show_record(update: Update, context: CallbackContext) -> None: 
+    userinput = update.message.text
+    search_RouteName = userinput.replace('/record', '').strip()
     
-        # Create a Firestore client
-        db = firestore.client()
+    # Check if all required information is included
+    if (len(search_RouteName) == 0):
+        update.message.reply_text('Please provide the route name after command /record.')
+        update.message.reply_text('Usage: e.g. /record Shing Mun River')
+        return
     
-        record = update.message.text
-        record = record.replace('/search ', '')
-        search_RouteName = record.split(',')
-        print(search_RouteName)
-        
-        collection_name = 'hiking_record'
-        
-        # Define the query
-        query = db.collection(collection_name).where('name', '==', search_RouteName[0])
-        
-        # Retrieve the documents that match the query
-        docs = query.get()
-        print(docs)
-        
+    collection_name = 'hiking_record'
+    
+    # Define the query
+    query = db.collection(collection_name).where('name', '==', search_RouteName.strip())
+    
+    # Retrieve the documents that match the query
+    docs = query.get()
+    print(docs)
+    print(len(docs))
+    
+    if (len(docs) == 0):
+        update.message.reply_text('No such record.')
+    else:
         # Iterate over the documents and extract the data
         for doc in docs:
             record_data = doc.to_dict()
@@ -250,13 +244,12 @@ def search_command(update: Update, context: CallbackContext) -> None:
             difficulty = record_data.get('difficulty', '')
             name = record_data.get('name', '')
             weather = record_data.get('weather', '')
-            
-            # Print or perform operations with the extracted fields
             print("Date:", date)
             print("Name:", name)
             print("Weather:", weather)
             print("Difficulty:", difficulty)
-            print("Comment:", comment)     
+            print("Comment:", comment)    
+            print("-"*15)
             
             # Reply to the user with the extracted fields
             reply_message = (
@@ -267,12 +260,7 @@ def search_command(update: Update, context: CallbackContext) -> None:
                 f"Comment: {comment}"
             )
             update.message.reply_text(reply_message)
-        
         print("Data extracted successfully!")
-    
-    except (IndexError, ValueError):
-        update.message.reply_text('Usage: e.g. /record Shing Mun River')
-
-    
+        
 if __name__=='__main__':
     main()
