@@ -1,7 +1,6 @@
 from telegram import Update
 from telegram.ext import (Updater, CommandHandler, MessageHandler, Filters, CallbackContext)
-# The messageHandler is used for all message updates
-import configparser
+import os
 import logging
 import firebase_admin
 from firebase_admin import credentials
@@ -71,9 +70,8 @@ def search_afcd(url, target_text):
 
 def main():
     # Load your token and create an Updater for your Bot
-    config = configparser.ConfigParser()
-    config.read('config.ini')
-    updater = Updater(token = (config['TELEGRAM']['ACCESS_TOKEN']), use_context = True)
+#    updater = Updater(token = (os.environ['TELEGRAM_ACCESS_TOKEN']), use_context = True)
+    updater = Updater(token = (os.environ.get('TELEGRAM_ACCESS_TOKEN')), use_context = True)
     dispatcher = updater.dispatcher
 
 	# You can set this logging module, so you will know when and why things do not work as expected. Meanwhile, update your config.ini as:
@@ -82,6 +80,7 @@ def main():
     # Initialize Firebase
     try:
         cred = credentials.Certificate('./serviceAccountKey.json')
+#        cred = credentials.Certificate(os.envirn['SERVICE_ACCOUNT_KEY'])
         firebase_admin.initialize_app(cred)    
     except:
         pass
@@ -109,21 +108,24 @@ def main():
 def start_command(update: Update, context: CallbackContext) -> None:
     """Send a message when the command/ start is issued."""
     update.message.reply_text('Welcome to GoHiking chatbot.')
+    
+#    legend_path = os.path.join('imgs', 'AFCD_Country_Park_Map_Legend.jpg')
+#    resized_image_path = os.path.join('imgs', 'resized_image.jpg')
 
     # Open the image file
-    with Image.open(r'imgs\AFCD_Country_Park_Map.jpg') as img:
-        # Resize the image
-        max_size = (5000, 5000)  # Max width and height
-        img.thumbnail(max_size)
+#    with Image.open(image_path) as img:
+#        # Resize the image
+#        max_size = (5000, 5000)  # Max width and height
+#        img.thumbnail(max_size)
 
         # Save the resized image to a new file
-        img.save(r'imgs\resized_image.jpg')
+#        img.save('.\APP\imgs\resized_image.jpg')
 
     # Open the resized image file in binary mode
-    with open(r'imgs\resized_image.jpg', 'rb') as photo:
+    with open('./imgs/resized_image.jpg', 'rb') as photo:
         context.bot.send_photo(chat_id=update.effective_chat.id, photo=photo)
     
-    with open(r'imgs\AFCD_Country_Park_Map_Legend.jpg', 'rb') as photo:
+    with open('./imgs/AFCD_Country_Park_Map_Legend.jpg', 'rb') as photo:
         context.bot.send_photo(chat_id=update.effective_chat.id, photo=photo)
 
     update.message.reply_text('\n\nI can recommend Hong Kong hiking routes based on your preference. Please select a location based on Agriculture, Fisheries and Conservation Department offical country park map and your preferred difficulty.\n\n(Location)\n(Difficulty)')
@@ -169,7 +171,7 @@ def handle_message(update: Update, context: CallbackContext) -> None:
         update.message.reply_text('e.g. /add 01/11/2011, Shing Mun, Sunny, 3, Nice weather hiking with friends')
     elif (gptResult == 'search'):
         update.message.reply_text('Please use /search command in the following format to search hiking record(s)...')
-        update.message.reply_text('e.g. /record Shing Mun River')
+        update.message.reply_text('e.g. /record Lion Rock')
 
     else:
         update.message.reply_text('I am sorry. As a hiking chatbot, I can only response to topics related to hiking. You can ask me questions or seek advice about hiking. :)')
