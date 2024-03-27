@@ -11,6 +11,7 @@ import requests
 from bs4 import BeautifulSoup
 from PIL import Image
 from urllib.parse import urljoin
+from cryptography.fernet import Fernet
 
 from ChatGPT_HKBU import HKBU_ChatGPT
 
@@ -80,7 +81,6 @@ def main():
     # Initialize Firebase
     try:
         cred = credentials.Certificate('./serviceAccountKey.json')
-#        cred = credentials.Certificate(os.envirn['SERVICE_ACCOUNT_KEY'])
         firebase_admin.initialize_app(cred)    
     except:
         pass
@@ -108,18 +108,6 @@ def main():
 def start_command(update: Update, context: CallbackContext) -> None:
     """Send a message when the command/ start is issued."""
     update.message.reply_text('Welcome to GoHiking chatbot.')
-    
-#    legend_path = os.path.join('imgs', 'AFCD_Country_Park_Map_Legend.jpg')
-#    resized_image_path = os.path.join('imgs', 'resized_image.jpg')
-
-    # Open the image file
-#    with Image.open(image_path) as img:
-#        # Resize the image
-#        max_size = (5000, 5000)  # Max width and height
-#        img.thumbnail(max_size)
-
-        # Save the resized image to a new file
-#        img.save('.\APP\imgs\resized_image.jpg')
 
     # Open the resized image file in binary mode
     with open('./imgs/resized_image.jpg', 'rb') as photo:
@@ -193,20 +181,13 @@ def add_command(update: Update, context: CallbackContext) -> None:
     # Check if all required information is included
     if len(split_data) != 5:
         update.message.reply_text('Please include all required information: date, route, weather, difficulty, and comment.')
-        update.message.reply_text('Usage: e.g. /add 01/11/2011, Shing Mun, Sunny, 3, Nice weather hiking with friends')
+        update.message.reply_text('Usage: e.g. /add 01/11/2011, Lion Rock, Sunny, 3, Nice weather hiking with friends')
         return
     
-    collection_name = 'hiking_record'
+    collection_name = str(update.message.chat.id)
     document_name = 'record_' + formatted_datetime
-    data = {
-        'user': user_username,
-        'date': split_data[0].strip(),
-        'name': split_data[1].strip(),
-        'weather': split_data[2].strip(),
-        'difficulty': split_data[3].strip(),
-        'comment': split_data[4].strip(),
-    }
-    
+    data = encryt_data(split_data)
+
     doc_ref = db.collection(collection_name).document(document_name)
     doc_ref.set(data)
     print("Data saved successfully!")
@@ -220,10 +201,10 @@ def show_record(update: Update, context: CallbackContext) -> None:
     # Check if all required information is included
     if (len(search_RouteName) == 0):
         update.message.reply_text('Please provide the route name after command /record.')
-        update.message.reply_text('Usage: e.g. /record Shing Mun River')
+        update.message.reply_text('Usage: e.g. /record Lion Rock')
         return
     
-    collection_name = 'hiking_record'
+    collection_name = str(update.message.chat.id)
     
     # Define the query
     query = db.collection(collection_name).where('name', '==', search_RouteName.strip())
@@ -239,30 +220,54 @@ def show_record(update: Update, context: CallbackContext) -> None:
         # Iterate over the documents and extract the data
         for doc in docs:
             record_data = doc.to_dict()
-            
-            # Access individual fields from the record_data dictionary
-            comment = record_data.get('comment', '')
-            date = record_data.get('date', '')
-            difficulty = record_data.get('difficulty', '')
-            name = record_data.get('name', '')
-            weather = record_data.get('weather', '')
-            print("Date:", date)
-            print("Name:", name)
-            print("Weather:", weather)
-            print("Difficulty:", difficulty)
-            print("Comment:", comment)    
-            print("-"*15)
-            
-            # Reply to the user with the extracted fields
-            reply_message = (
-                f"Date: {date}\n"
-                f"Name: {name}\n"
-                f"Weather: {weather}\n"
-                f"Difficulty: {difficulty}\n"
-                f"Comment: {comment}"
-            )
+            reply_message = decryt_data(record_data)
             update.message.reply_text(reply_message)
         print("Data extracted successfully!")
+
+# Data Encryption
+def encryt_data(split_data):
+    key = os.environ.get('ENCRYPTION_TOKEN')
+        
+    # Create a Fernet cipher object with the encryption key
+    cipher = Fernet(key.encode("utf-8"))
+    
+    data = {
+        'date': cipher.encrypt(split_data[0].strip().encode("utf-8")),
+        'name': split_data[1].strip(),
+        'weather': cipher.encrypt(split_data[2].strip().encode("utf-8")),
+        'difficulty': cipher.encrypt(split_data[3].strip().encode("utf-8")),
+        'comment': cipher.encrypt(split_data[4].strip().encode("utf-8")),
+    }
+
+    return data
+
+# Data Decryption
+def decryt_data(record_data):
+    key = os.environ.get('ENCRYPTION_TOKEN')
+    
+    cipher = Fernet(key.encode("utf-8"))
+
+    comment = cipher.decrypt(record_data.get('comment', '')).decode()
+    date = cipher.decrypt(record_data.get('date', '')).decode()
+    difficulty = cipher.decrypt(record_data.get('difficulty', '')).decode()
+    name = record_data.get('name', '')
+    weather = cipher.decrypt(record_data.get('weather', '')).decode()
+    print("Date:", date)
+    print("Name:", name)
+    print("Weather:", weather)
+    print("Difficulty:", difficulty)
+    print("Comment:", comment)    
+    print("-"*15)
+    
+    reply_message = (
+        f"Date: {date}\n"
+        f"Name: {name}\n"
+        f"Weather: {weather}\n"
+        f"Difficulty: {difficulty}\n"
+        f"Comment: {comment}"
+    )
+    
+    return reply_message
         
 if __name__=='__main__':
     main()

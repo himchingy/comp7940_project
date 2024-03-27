@@ -6,3 +6,4 @@ firebase-admin
 bs4
 pillow
 datetime
+cryptography
